@@ -189,6 +189,66 @@ describe('handleQuickChatStart — error paths (send_failed)', () => {
     }
   });
 
+  // @kenji + @xuan PR110b follow-up: each error category must
+  // produce a Chinese-only `send_failed` message. The earlier tests
+  // happened to dodge category matchers by accident; this matrix
+  // locks the Chinese contract explicitly for every category the
+  // classifier recognizes.
+  for (const { name, raw, expected } of [
+    { name: 'timeout', raw: 'Request timeout after 30s', expected: '请求超时' },
+    { name: '429 rate limit', raw: 'HTTP 429 Too Many Requests', expected: '触发模型速率限制' },
+    { name: '401 auth', raw: '401 Unauthorized: bad key', expected: '鉴权失败' },
+    { name: '5xx', raw: 'Provider returned 500 Internal Server Error', expected: '模型服务暂不可用' },
+    { name: 'network', raw: 'ECONNREFUSED fetch failed', expected: '网络错误' },
+  ]) {
+    it(`send failure category ${name} → Chinese-only generalized message`, async () => {
+      const deps = makeDeps({
+        sendFirstMessage: async () => {
+          throw new Error(raw);
+        },
+      });
+      const result = await handleQuickChatStart({ prompt: 'hi' }, deps);
+      assert.equal(result.ok, false);
+      if (!result.ok && result.reason === 'send_failed') {
+        // Exact match for the canonical Chinese phrase.
+        assert.equal(result.message, expected, `${name}: expected canonical Chinese category`);
+        // No English category leak.
+        for (const eng of [
+          'Request timed out',
+          'Rate limit exceeded',
+          'Authentication failed',
+          'Provider unavailable',
+          'Network error',
+          'Operation failed',
+        ]) {
+          assert.equal(result.message.includes(eng), false, `${name} message leaked "${eng}"`);
+        }
+        // No raw category token leak from the input.
+        assert.ok(!result.message.toLowerCase().includes('econnrefused'), `${name} message leaked ECONNREFUSED`);
+      } else {
+        assert.fail(`${name}: expected send_failed result`);
+      }
+    });
+  }
+
+  it('completely unknown error → Chinese fallback (no English leak)', async () => {
+    const deps = makeDeps({
+      sendFirstMessage: async () => {
+        throw new Error('something completely uncategorized happened');
+      },
+    });
+    const result = await handleQuickChatStart({ prompt: 'hi' }, deps);
+    if (!result.ok && result.reason === 'send_failed') {
+      // Falls back to the Chinese message passed in by handleQuickChatStart
+      // ("会话已创建但发送失败，请重试。" for ensureCanSend / send failures).
+      assert.match(result.message, /[一-鿿]/);
+      assert.equal(result.message.includes('Operation failed'), false);
+      assert.equal(result.message.includes('something completely uncategorized'), false);
+    } else {
+      assert.fail('expected send_failed');
+    }
+  });
+
   it('ensureCanSend failure → send_failed (session still created, but caller sees failure)', async () => {
     const deps = makeDeps({
       ensureCanSend: async () => {

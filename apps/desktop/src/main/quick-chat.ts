@@ -17,7 +17,7 @@
  */
 
 import type { OnboardingState, SessionSummary } from '@maka/core';
-import { generalizedErrorMessage } from '@maka/core';
+import { generalizedErrorMessageChinese } from '@maka/core';
 
 export type QuickChatResult =
   | { ok: true; sessionId: string; firstMessageId?: string }
@@ -86,7 +86,7 @@ export async function handleQuickChatStart(
     return {
       ok: false,
       reason: 'send_failed',
-      message: generalizedErrorMessage(error, '无法创建会话，请稍后再试。'),
+      message: generalizedErrorMessageChinese(error, '无法创建会话，请稍后再试。'),
     };
   }
 
@@ -104,7 +104,7 @@ export async function handleQuickChatStart(
     return {
       ok: false,
       reason: 'send_failed',
-      message: generalizedErrorMessage(error, '会话已创建但发送失败，请重试。'),
+      message: generalizedErrorMessageChinese(error, '会话已创建但发送失败，请重试。'),
     };
   }
 }
