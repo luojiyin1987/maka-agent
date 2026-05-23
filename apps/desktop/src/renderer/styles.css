@@ -273,18 +273,30 @@ button:active {
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: 4px;
+  /* PR-UI-LAYOUT-39: clear button radius 4 → 6 + focus ring +
+   * smooth transition. The "×" clear is a 18×18 icon button
+   * inside the search wrapper; keyboard tab into it had no
+   * visible focus before. */
+  border-radius: 6px;
   background: transparent;
   color: var(--foreground-50);
   cursor: pointer;
   font-size: 16px;
   line-height: 1;
   padding: 0;
+  transition: background 120ms ease, color 120ms ease, box-shadow 120ms ease;
 }
 
 .maka-session-search-clear:hover {
   color: var(--foreground);
   background: var(--foreground-5);
+}
+
+.maka-session-search-clear:focus-visible {
+  outline: none;
+  color: var(--foreground);
+  background: var(--foreground-5);
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.14);
 }
 
 .maka-session-list {
@@ -673,15 +685,26 @@ button:active {
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: 6px;
+  /* PR-UI-LAYOUT-26: row action toggles (rename / flag / archive)
+   * radius 6 → 8 to match the new tap-target family + add
+   * focus-visible ring; missing focus state was a a11y gap. */
+  border-radius: 8px;
   background: transparent;
   color: var(--foreground-60);
   cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, box-shadow 120ms ease;
 }
 
 .maka-list-row-action:hover {
   color: var(--foreground);
   background: var(--foreground-5);
+}
+
+.maka-list-row-action:focus-visible {
+  outline: none;
+  color: var(--foreground);
+  background: var(--foreground-5);
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.14);
 }
 
 .maka-list-row-action[data-active="true"] {
@@ -691,6 +714,12 @@ button:active {
 .maka-list-row-action-danger:hover {
   color: var(--destructive-text);
   background: oklch(from var(--destructive) l c h / 0.10);
+}
+
+.maka-list-row-action-danger:focus-visible {
+  color: var(--destructive-text);
+  background: oklch(from var(--destructive) l c h / 0.10);
+  box-shadow: 0 0 0 3px oklch(from var(--destructive) l c h / 0.18);
 }
 
 .maka-list-row-rename-input {
@@ -2778,9 +2807,12 @@ button:active {
   font-family: var(--font-mono);
   font-size: 12px;
   padding: 1px 6px;
-  border-radius: 4px;
+  /* PR-UI-LAYOUT-40: tool pill radius 4 → 5 to match the inline
+   * `<code>` family (LAYOUT-28 set inline code at 5). */
+  border-radius: 5px;
   background: var(--foreground-5);
   color: var(--foreground-80);
+  border: 1px solid oklch(from var(--foreground) l c h / 0.03);
 }
 
 .maka-permission-body {
@@ -2807,9 +2839,14 @@ button:active {
   font-family: var(--font-mono);
   font-size: 12.5px;
   padding: 2px 6px;
-  border-radius: 4px;
+  /* PR-UI-LAYOUT-40: radius 4 → 5 + hairline border to match the
+   * inline `<code>` family (LAYOUT-28 / 40). The path display in
+   * the Permission Dialog now reads as the same kind of element
+   * as inline code anywhere else. */
+  border-radius: 5px;
   background: var(--foreground-5);
   color: var(--foreground);
+  border: 1px solid oklch(from var(--foreground) l c h / 0.03);
 }
 
 .maka-permission-command,
@@ -3428,7 +3465,14 @@ button:active {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   background: var(--background);
-  padding: 24px 34px 74px 20px;
+  /* PR-UI-LAYOUT-36: equalize horizontal padding (was asymmetric
+   * 34 right / 20 left, content used to drift toward the left
+   * edge of the main pane). 26px both sides matches the 牛马AI
+   * settings interior spacing in screenshots 2/3/4. Bottom kept
+   * at 74px because the absolute-positioned "完成" CTA lives
+   * there. Top trimmed 24 → 22 so the header h2 sits a touch
+   * closer to the modal top border. */
+  padding: 22px 26px 74px 26px;
 }
 
 .settingsPageHeader {
@@ -3516,6 +3560,27 @@ button:active {
   background: var(--foreground-20);
   cursor: pointer;
   padding: 2px;
+  /* PR-UI-LAYOUT-35: smooth bg transition + focus ring (was
+   * missing — keyboard users couldn't see the switch state
+   * change visually-focused). */
+  transition: background 150ms ease, box-shadow 150ms ease;
+}
+
+.settingsSwitch:hover {
+  background: oklch(from var(--foreground) l c h / 0.28);
+}
+
+.settingsSwitch:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.18);
+}
+
+.settingsSwitch[data-checked="true"]:hover {
+  background: var(--brand-deep-hover);
+}
+
+.settingsSwitch[data-checked="true"]:focus-visible {
+  box-shadow: 0 0 0 3px oklch(from var(--brand-deep) l c h / 0.28);
 }
 
 .settingsSwitch span {
