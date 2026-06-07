@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ComponentType, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ComponentType, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 import {
   Activity,
   BarChart3,
@@ -1118,6 +1118,7 @@ function AboutSettingsPage() {
   const copyingEnvSummaryRef = useRef(false);
   const aboutPageMountedRef = useRef(false);
   const toast = useToast();
+  const envSummaryHelpId = useId();
 
   useEffect(() => {
     let cancelled = false;
@@ -1259,11 +1260,11 @@ function AboutSettingsPage() {
       </SettingsRows>
 
       <div className="settingsActionRow">
-        <button type="button" className="maka-button" disabled={copyingEnvSummary} onClick={() => void copyEnvSummary()}>
+        <button type="button" className="maka-button" disabled={copyingEnvSummary} aria-describedby={envSummaryHelpId} onClick={() => void copyEnvSummary()}>
           {copyingEnvSummary ? '复制中…' : '复制环境信息'}
         </button>
       </div>
-      <p className="settingsHelpText">
+      <p id={envSummaryHelpId} className="settingsHelpText">
         如果遇到问题，复制以上信息会同时带上版本号与平台细节，方便定位。复制内容不包含工作区路径（避免泄露用户名）。
       </p>
     </div>
@@ -1368,6 +1369,7 @@ function VoiceModelsSettingsPage() {
   const voicePageMountedRef = useRef(false);
   const toast = useToast();
   const caps = defaultVoiceCaptureCaps();
+  const smokeStatusId = useId();
 
   useEffect(() => {
     voicePageMountedRef.current = true;
@@ -1518,13 +1520,14 @@ function VoiceModelsSettingsPage() {
           onClick={() => void runCaptureSmoke()}
           disabled={isBusy}
           aria-busy={isBusy}
+          aria-describedby={smokeStatusId}
           data-pending={isBusy ? 'true' : undefined}
         >
           {isBusy ? '自检中…' : '运行录音自检'}
         </button>
       </div>
 
-      <div className="settingsNotice" data-tone={smoke.status === 'error' ? undefined : 'passive'} role="status">
+      <div id={smokeStatusId} className="settingsNotice" data-tone={smoke.status === 'error' ? undefined : 'passive'} role="status">
         {smoke.message}
       </div>
 
@@ -2062,6 +2065,7 @@ function PersonalizationSettingsPage(props: {
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const personalizationMountedRef = useRef(false);
+  const personalizationSaveHelpId = useId();
 
   useEffect(() => {
     personalizationMountedRef.current = true;
@@ -2196,12 +2200,13 @@ function PersonalizationSettingsPage(props: {
           data-variant="primary"
           disabled={saving}
           aria-busy={saving}
+          aria-describedby={personalizationSaveHelpId}
           data-pending={saving ? 'true' : undefined}
           onClick={() => void save()}
         >
           {saving ? '保存中…' : '保存'}
         </button>
-        <p className="settingsHelpText">保存后立即生效，下一次发送对话时模型会拿到新偏好。</p>
+        <p id={personalizationSaveHelpId} className="settingsHelpText">保存后立即生效，下一次发送对话时模型会拿到新偏好。</p>
       </div>
     </div>
   );
