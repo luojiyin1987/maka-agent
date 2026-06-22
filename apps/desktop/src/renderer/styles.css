@@ -2491,8 +2491,8 @@ button:active {
 
 .maka-empty-state-body {
   max-width: 30ch;
-  color: var(--foreground-50);
-  font-size: 11px;
+  color: var(--foreground-45);
+  font-size: 12px;
   line-height: 1.4;
   text-wrap: pretty;
 }
@@ -2941,7 +2941,7 @@ button:active {
   position: relative;
   gap: 6px;
   min-width: 0;
-  height: 30px;
+  height: 28px;
   padding: 0;
   border-radius: 0;
   background: transparent;
@@ -3047,7 +3047,7 @@ button:active {
 
 .maka-plan-card:hover {
   border-color: oklch(from var(--foreground) l c h / 0.13);
-  box-shadow: 0 10px 22px -22px oklch(from var(--foreground) l c h / 0.32);
+  box-shadow: 0 4px 12px -8px oklch(from var(--foreground) l c h / 0.08);
   transform: translateY(-1px);
 }
 
@@ -3863,9 +3863,9 @@ button:active {
 }
 
 .maka-skill-filter-pill {
-  height: 30px;
+  height: 28px;
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: 6px;
   background: var(--background);
   color: var(--foreground-70);
   font-size: 12px;
@@ -3916,7 +3916,7 @@ button:active {
 
 .maka-skill-market-card:hover {
   border-color: oklch(from var(--foreground) l c h / 0.14);
-  box-shadow: 0 10px 22px -22px oklch(from var(--foreground) l c h / 0.30);
+  box-shadow: 0 4px 12px -8px oklch(from var(--foreground) l c h / 0.08);
   transform: translateY(-1px);
 }
 
@@ -13736,22 +13736,37 @@ html[data-os="darwin"] .maka-shell-2col {
 
 html[data-os="darwin"] .maka-session-panel {
   background:
-    /* Subtle warm wash so the glass material reads as a defined column
-       rather than empty translucency. Matches the reference layout's
-       parchment-mode `--agents-layout-bg` gradient direction. */
+    /* Warm wash so the glass material reads as a defined column rather
+       than empty translucency. Bumped from 0.04 -> 0.08 alpha so text
+       contrast holds on bright desktops (audit finding §6). Matches the
+       reference layout's parchment-mode `--agents-layout-bg` gradient
+       direction. */
     linear-gradient(
       172deg,
-      oklch(from var(--foreground) l c h / 0.04) 19.61%,
-      transparent 81.35%
+      oklch(from var(--foreground) l c h / 0.08) 19.61%,
+      oklch(from var(--foreground) l c h / 0.02) 81.35%
     ),
-    /* Faint translucent base so text stays legible on bright desktops. */
-    oklch(from var(--surface-canvas) l c h / 0.62);
-  /* Backdrop blur — even when vibrancy paints the OS material below,
-     this softens any window-content that bleeds through (e.g. during
-     resize). 12px matches the reference's chat-input parchment blur. */
-  backdrop-filter: saturate(140%) blur(12px);
-  -webkit-backdrop-filter: saturate(140%) blur(12px);
+    /* Translucent base — 50% (was 62%) gives the OS vibrancy more
+       room to show through while still keeping ~4.5:1 contrast on the
+       row text per WCAG AA. */
+    oklch(from var(--surface-canvas) l c h / 0.50);
+  /* Backdrop blur softens content that bleeds through. 8px (was 12)
+     keeps row text crisp; deeper blur made small UI text look soft. */
+  backdrop-filter: saturate(140%) blur(8px);
+  -webkit-backdrop-filter: saturate(140%) blur(8px);
   border-right: 1px solid oklch(from var(--foreground) l c h / 0.06);
+}
+
+/* Force opaque-foreground text on every direct sidebar text surface so
+   the glass material doesn't pull legibility down through inheritance
+   (audit finding §6). The wash + 50% base provide enough contrast for
+   foreground @ full alpha; nav rows / list rows / settings button all
+   inherit. */
+html[data-os="darwin"] .maka-session-panel-header,
+html[data-os="darwin"] .maka-session-list,
+html[data-os="darwin"] .maka-nav-row,
+html[data-os="darwin"] .maka-list-row {
+  color: var(--foreground);
 }
 
 html[data-os="darwin"] .maka-session-panel-footer {
