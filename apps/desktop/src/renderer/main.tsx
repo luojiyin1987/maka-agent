@@ -3039,6 +3039,7 @@ function AppShell() {
                   ?? undefined
                 }
                 activeSession={activeSessionForView}
+                activeConnectionLabel={activeConnectionLabel}
                 activeModelLabel={activeModelLabel}
                 modelChoices={chatModelChoices}
                 modelChangePending={activeId ? pendingSessionModelBySession[activeId] === true : false}

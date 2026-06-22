@@ -964,27 +964,27 @@ function SettingsSurface(props: {
           </header>
           <nav aria-label="设置分组">
             {groupedNav().map(({ group, items }) => (
-                <div key={group} className="settingsNavGroup" role="group" aria-label={group}>
-                  <div className="settingsNavGroupLabel">{group}</div>
-                  {items.map((item) => (
-                    <button
-                      key={item.id}
-                      className="settingsNavItem"
-                      data-active={section === item.id}
-                      aria-current={section === item.id ? 'page' : undefined}
-                      type="button"
-                      ref={section === item.id ? props.initialFocusRef : undefined}
-                      disabled={!item.enabled}
-                      onClick={() => setSection(item.id)}
-                    >
-                      <span className="settingsNavGlyph" aria-hidden="true">
-                        <item.Icon size={16} strokeWidth={1.5} />
-                      </span>
-                      <strong>{item.label}</strong>
-                    </button>
-                  ))}
-                </div>
-              ))}
+              <div key={group} className="settingsNavGroup" role="group" aria-label={group}>
+                <div className="settingsNavGroupLabel">{group}</div>
+                {items.map((item) => (
+                  <Button
+                    key={item.id}
+                    className="settingsNavItem"
+                    data-active={section === item.id}
+                    aria-current={section === item.id ? 'page' : undefined}
+                    type="button"
+                    ref={section === item.id ? props.initialFocusRef : undefined}
+                    disabled={!item.enabled}
+                    onClick={() => setSection(item.id)}
+                  >
+                    <span className="settingsNavGlyph" aria-hidden="true">
+                      <item.Icon size={16} strokeWidth={1.5} />
+                    </span>
+                    <strong>{item.label}</strong>
+                  </Button>
+                ))}
+              </div>
+            ))}
           </nav>
         </div>
       </aside>

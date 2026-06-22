@@ -87,7 +87,7 @@ body {
 }
 
 .os-theme-maka {
-  --os-size: 6px;
+  --os-size: 8px;
   --os-padding-perpendicular: 1px;
   --os-padding-axis: 2px;
   --os-track-border-radius: 8px;
@@ -95,7 +95,7 @@ body {
   --os-track-bg-hover: transparent;
   --os-track-bg-active: transparent;
   --os-handle-border-radius: 6px;
-  --os-handle-bg: oklch(from var(--foreground) l c h / 0.14);
+  --os-handle-bg: var(--border);
   --os-handle-bg-hover: oklch(from var(--foreground) l c h / 0.22);
   --os-handle-bg-active: oklch(from var(--foreground) l c h / 0.30);
   --os-handle-interactive-area-offset: 6px;
@@ -701,13 +701,7 @@ button:active {
   padding-inline: 8px;
 }
 
-.maka-session-panel[data-collapsed="true"] .maka-sidebar-settings-button {
-  width: 32px;
-  justify-content: center;
-  padding-inline: 0;
-}
-
-.maka-session-panel[data-collapsed="true"] .maka-sidebar-settings-button span {
+.maka-session-panel[data-collapsed="true"] .maka-sidebar-account-copy {
   display: none;
 }
 
@@ -753,7 +747,7 @@ button:active {
   overflow: hidden;
   border-top: 0;
   display: grid;
-  grid-template-rows: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   padding-top: 5px;
 }
 
@@ -764,29 +758,76 @@ button:active {
   border-top: 0;
 }
 
-.maka-sidebar-settings-button {
-  width: 100%;
-  min-height: 32px;
-  display: inline-flex;
+.maka-sidebar-account {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: var(--foreground-70);
-  cursor: pointer;
-  padding: 5px 8px;
+  color: var(--foreground);
+  padding: 3px 0;
   text-align: left;
-  font-size: 13px;
-  font-weight: 500;
 }
 
-.maka-sidebar-settings-button:hover {
+.maka-sidebar-account:hover,
+.maka-sidebar-account-settings:hover {
   background: oklch(from var(--foreground) l c h / 0.06);
   color: var(--foreground);
 }
 
-.maka-sidebar-settings-button .maka-nav-icon {
+.maka-sidebar-account-avatar {
+  width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid oklch(from var(--accent) l c h / 0.14);
+  border-radius: 999px;
+  background: oklch(0.92 0.06 340);
+  color: oklch(0.58 0.19 340);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.maka-sidebar-account-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.maka-sidebar-account-copy strong,
+.maka-sidebar-account-copy small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maka-sidebar-account-copy strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.maka-sidebar-account-copy small {
+  color: var(--foreground-45);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.maka-sidebar-account-settings {
+  width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--foreground-55);
+}
+
+.maka-sidebar-account-settings .maka-nav-icon {
   width: 18px;
   height: 18px;
   color: currentColor;
@@ -3763,7 +3804,6 @@ button:active {
   border-radius: 0;
   background: transparent;
   color: var(--foreground-55);
-  cursor: pointer;
   font-size: 13px;
   font-weight: 500;
   padding: 0 1px;
@@ -7037,7 +7077,6 @@ button:active {
   background: transparent;
   box-shadow: none;
   color: var(--foreground-70);
-  cursor: pointer;
   margin-inline: 4px;
   padding: 4px 8px;
   text-align: left;
