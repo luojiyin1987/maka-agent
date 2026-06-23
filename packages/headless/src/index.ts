@@ -383,6 +383,9 @@ export {
 export type {
   HeavyTaskCompletionInput,
   HeavyTaskCompletionStatus,
+  HeavyTaskEvidenceChainItem,
+  HeavyTaskEvidenceChainOutcome,
+  HeavyTaskEvidenceChainSummary,
   HeavyTaskRuntimeCapKind,
   HeavyTaskSemanticStatus,
 } from './heavy-task-finalization.js';
