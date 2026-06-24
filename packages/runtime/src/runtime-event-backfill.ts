@@ -1,0 +1,398 @@
+import type {
+  AgentRunHeader,
+  PermissionDecisionMessage,
+  RuntimeEvent,
+  RuntimeEventStatus,
+  StoredMessage,
+  TokenUsageMessage,
+  ToolCallMessage,
+  ToolResultMessage,
+  TurnStateMessage,
+} from '@maka/core';
+import { createRuntimeEventId } from '@maka/core';
+
+export const RUNTIME_EVENT_BACKFILL_STATE_KEY = 'makaRuntimeRecovery';
+
+export type RuntimeEventBackfillDiagnosticCode =
+  | 'skipped_high_risk_message'
+  | 'skipped_unmatched_tool_result'
+  | 'skipped_unmatched_permission_decision'
+  | 'skipped_unsafe_terminal_state';
+
+export interface RuntimeEventBackfillDiagnostic {
+  code: RuntimeEventBackfillDiagnosticCode;
+  message: string;
+  detail?: unknown;
+}
+
+export interface RuntimeEventBackfillInput {
+  run: AgentRunHeader;
+  messages: readonly StoredMessage[];
+  invocationId?: string;
+  now?: () => number;
+  newId?: () => string;
+}
+
+export interface RuntimeEventBackfillResult {
+  events: RuntimeEvent[];
+  diagnostics: RuntimeEventBackfillDiagnostic[];
+}
+
+interface RuntimeEventBackfillRecoveryState {
+  kind: 'runtime_event_backfill';
+  source: 'legacy_stored_message';
+  reason: 'missing_runtime_event_ledger';
+  sourceMessageId?: string;
+  sourceMessageType?: StoredMessage['type'];
+  confidence: 'lossless';
+  generatedAt: number;
+  version: 1;
+}
+
+export function backfillRuntimeEventsFromStoredMessages(
+  input: RuntimeEventBackfillInput,
+): RuntimeEventBackfillResult {
+  const newId = input.newId ?? (() => createRuntimeEventId('rt-backfill'));
+  const now = input.now ?? (() => Date.now());
+  const invocationId = input.invocationId ?? `backfill-${input.run.runId}`;
+  const diagnostics: RuntimeEventBackfillDiagnostic[] = [];
+  const events: RuntimeEvent[] = [];
+  const turnMessages = input.messages
+    .filter((message) => messageTurnId(message) === input.run.turnId)
+    .slice()
+    .sort((a, b) => a.ts - b.ts || messageId(a).localeCompare(messageId(b)));
+  const toolCalls = new Map<string, ToolCallMessage>();
+
+  for (const message of turnMessages) {
+    if (message.type === 'tool_call') {
+      toolCalls.set(message.id, message);
+    }
+  }
+
+  for (const message of turnMessages) {
+    const base = {
+      invocationId,
+      runId: input.run.runId,
+      sessionId: input.run.sessionId,
+      turnId: input.run.turnId,
+      ts: message.ts,
+      partial: false,
+    } as const;
+
+    switch (message.type) {
+      case 'user':
+        events.push({
+          ...base,
+          id: newId(),
+          role: 'user',
+          author: 'user',
+          content: {
+            kind: 'text',
+            text: message.text,
+            ...(message.attachments !== undefined && message.attachments.length > 0
+              ? { attachments: message.attachments }
+              : {}),
+          },
+          actions: { stateDelta: recoveryState(now, message) },
+          refs: { storedMessageId: message.id },
+        });
+        break;
+
+      case 'assistant':
+        events.push({
+          ...base,
+          id: newId(),
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text: message.text },
+          actions: { stateDelta: recoveryState(now, message) },
+          refs: { storedMessageId: message.id },
+        });
+        if (message.thinking && message.thinking.text.length > 0) {
+          events.push({
+            ...base,
+            id: newId(),
+            role: 'model',
+            author: 'agent',
+            content: {
+              kind: 'thinking',
+              text: message.thinking.text,
+              ...(message.thinking.signature !== undefined ? { signature: message.thinking.signature } : {}),
+            },
+            actions: { stateDelta: recoveryState(now, message) },
+            refs: { storedMessageId: message.id },
+          });
+        }
+        break;
+
+      case 'tool_call':
+        events.push({
+          ...base,
+          id: newId(),
+          role: 'model',
+          author: 'agent',
+          content: {
+            kind: 'function_call',
+            id: message.id,
+            name: message.toolName,
+            args: message.args,
+          },
+          actions: {
+            stateDelta: {
+              ...recoveryState(now, message),
+              ...(message.displayName !== undefined ? { displayName: message.displayName } : {}),
+              ...(message.intent !== undefined ? { intent: message.intent } : {}),
+            },
+          },
+          refs: { storedMessageId: message.id, toolCallId: message.id },
+        });
+        break;
+
+      case 'tool_result': {
+        const call = safePriorToolCall(toolCalls, message);
+        if (!call) {
+          diagnostics.push({
+            code: 'skipped_unmatched_tool_result',
+            message: 'tool_result requires an earlier same-turn tool_call to recover RuntimeEvent function_response',
+            detail: {
+              messageId: message.id,
+              toolUseId: message.toolUseId,
+              runId: input.run.runId,
+              turnId: input.run.turnId,
+            },
+          });
+          break;
+        }
+        events.push({
+          ...base,
+          id: newId(),
+          role: 'tool',
+          author: 'tool',
+          content: {
+            kind: 'function_response',
+            id: message.toolUseId,
+            name: call.toolName,
+            result: message.content,
+            isError: message.isError,
+          },
+          actions: {
+            stateDelta: {
+              ...recoveryState(now, message),
+              ...(message.durationMs !== undefined ? { durationMs: message.durationMs } : {}),
+            },
+          },
+          refs: { storedMessageId: message.id, toolCallId: message.toolUseId },
+        });
+        break;
+      }
+
+      case 'permission_decision': {
+        const call = safePriorToolCall(toolCalls, message);
+        if (!call) {
+          diagnostics.push({
+            code: 'skipped_unmatched_permission_decision',
+            message: 'permission_decision requires an earlier same-turn tool_call to recover RuntimeEvent permissionDecision',
+            detail: {
+              messageId: message.id,
+              toolUseId: message.toolUseId,
+              runId: input.run.runId,
+              turnId: input.run.turnId,
+            },
+          });
+          break;
+        }
+        events.push({
+          ...base,
+          id: newId(),
+          role: 'system',
+          author: 'system',
+          actions: {
+            stateDelta: recoveryState(now, message),
+            permissionDecision: {
+              requestId: message.id,
+              decision: message.decision,
+              ...(message.rememberForTurn !== undefined ? { rememberForTurn: message.rememberForTurn } : {}),
+            },
+          },
+          refs: { storedMessageId: message.id, toolCallId: call.id },
+        });
+        break;
+      }
+
+      case 'token_usage':
+        events.push({
+          ...base,
+          id: newId(),
+          role: 'system',
+          author: 'system',
+          actions: {
+            stateDelta: recoveryState(now, message),
+            tokenUsage: tokenUsageFromMessage(message),
+          },
+          refs: { storedMessageId: message.id },
+        });
+        break;
+
+      case 'turn_state':
+        break;
+
+      case 'system_note':
+        diagnostics.push({
+          code: 'skipped_high_risk_message',
+          message: 'system_note is not recovered into a run ledger because session-level notes may not belong to this run',
+          detail: {
+            messageId: message.id,
+            kind: message.kind,
+            runId: input.run.runId,
+            turnId: input.run.turnId,
+          },
+        });
+        break;
+    }
+  }
+
+  const terminal = terminalRuntimeEvent({ run: input.run, turnMessages, invocationId, newId, now });
+  if (terminal.event) {
+    events.push(terminal.event);
+  } else if (terminal.diagnostic) {
+    diagnostics.push(terminal.diagnostic);
+  }
+
+  return { events, diagnostics };
+}
+
+function recoveryState(now: () => number, message: StoredMessage): Record<string, unknown> {
+  const state: RuntimeEventBackfillRecoveryState = {
+    kind: 'runtime_event_backfill',
+    source: 'legacy_stored_message',
+    reason: 'missing_runtime_event_ledger',
+    sourceMessageId: messageId(message),
+    sourceMessageType: message.type,
+    confidence: 'lossless',
+    generatedAt: now(),
+    version: 1,
+  };
+  return { [RUNTIME_EVENT_BACKFILL_STATE_KEY]: state };
+}
+
+function terminalRecoveryState(
+  now: () => number,
+  message: TurnStateMessage | undefined,
+): Record<string, unknown> {
+  const state: RuntimeEventBackfillRecoveryState = {
+    kind: 'runtime_event_backfill',
+    source: 'legacy_stored_message',
+    reason: 'missing_runtime_event_ledger',
+    ...(message ? { sourceMessageId: message.id, sourceMessageType: message.type } : {}),
+    confidence: 'lossless',
+    generatedAt: now(),
+    version: 1,
+  };
+  return { [RUNTIME_EVENT_BACKFILL_STATE_KEY]: state };
+}
+
+function terminalRuntimeEvent(input: {
+  run: AgentRunHeader;
+  turnMessages: readonly StoredMessage[];
+  invocationId: string;
+  newId: () => string;
+  now: () => number;
+}): { event?: RuntimeEvent; diagnostic?: RuntimeEventBackfillDiagnostic } {
+  const turnState = latestTurnState(input.turnMessages);
+  const status = terminalStatus(input.run, turnState);
+  if (!status) {
+    return {
+      diagnostic: {
+        code: 'skipped_unsafe_terminal_state',
+        message: 'terminal RuntimeEvent was not recovered because legacy terminal evidence is incomplete',
+        detail: {
+          runId: input.run.runId,
+          turnId: input.run.turnId,
+          runStatus: input.run.status,
+          turnStatus: turnState?.status,
+        },
+      },
+    };
+  }
+  const ts = turnState?.ts ?? input.run.completedAt ?? input.run.updatedAt;
+  return {
+    event: {
+      id: input.newId(),
+      invocationId: input.invocationId,
+      runId: input.run.runId,
+      sessionId: input.run.sessionId,
+      turnId: input.run.turnId,
+      ts,
+      partial: false,
+      role: 'system',
+      author: 'system',
+      status,
+      actions: {
+        endInvocation: true,
+        stateDelta: {
+          ...terminalRecoveryState(input.now, turnState),
+          ...(turnState?.abortSource !== undefined ? { abortSource: turnState.abortSource } : {}),
+        },
+      },
+      ...(turnState ? { refs: { storedMessageId: turnState.id } } : {}),
+    },
+  };
+}
+
+function terminalStatus(
+  run: AgentRunHeader,
+  turnState: TurnStateMessage | undefined,
+): RuntimeEventStatus | undefined {
+  const legacyStatus = turnState?.status;
+  if (legacyStatus === 'completed' || run.status === 'completed') return 'completed';
+  if ((legacyStatus === 'failed' || run.status === 'failed') && run.failureClass) return 'failed';
+  if ((legacyStatus === 'aborted' || run.status === 'cancelled') && turnState?.abortSource) return 'aborted';
+  return undefined;
+}
+
+function latestTurnState(messages: readonly StoredMessage[]): TurnStateMessage | undefined {
+  return messages
+    .filter((message): message is TurnStateMessage => message.type === 'turn_state')
+    .at(-1);
+}
+
+function safePriorToolCall(
+  toolCalls: ReadonlyMap<string, ToolCallMessage>,
+  message: ToolResultMessage | PermissionDecisionMessage,
+): ToolCallMessage | undefined {
+  const call = toolCalls.get(message.toolUseId);
+  if (!call) return undefined;
+  return call.ts <= message.ts ? call : undefined;
+}
+
+function tokenUsageFromMessage(message: TokenUsageMessage): NonNullable<RuntimeEvent['actions']>['tokenUsage'] {
+  return {
+    input: message.input,
+    output: message.output,
+    ...(message.cacheHitInput !== undefined ? { cacheHitInput: message.cacheHitInput } : {}),
+    ...(message.cacheMissInput !== undefined ? { cacheMissInput: message.cacheMissInput } : {}),
+    ...(message.cacheWriteInput !== undefined ? { cacheWriteInput: message.cacheWriteInput } : {}),
+    ...(message.cacheMissInputSource !== undefined ? { cacheMissInputSource: message.cacheMissInputSource } : {}),
+    ...(message.reasoning !== undefined ? { reasoning: message.reasoning } : {}),
+    ...(message.total !== undefined ? { total: message.total } : {}),
+    ...(message.rawFinishReason !== undefined ? { rawFinishReason: message.rawFinishReason } : {}),
+    ...(message.cacheRead !== undefined ? { cacheRead: message.cacheRead } : {}),
+    ...(message.cacheCreation !== undefined ? { cacheCreation: message.cacheCreation } : {}),
+    ...(message.costUsd !== undefined ? { costUsd: message.costUsd } : {}),
+    ...(message.systemPromptHash !== undefined ? { systemPromptHash: message.systemPromptHash } : {}),
+    ...(message.prefixHash !== undefined ? { prefixHash: message.prefixHash } : {}),
+    ...(message.prefixChangeReason !== undefined ? { prefixChangeReason: message.prefixChangeReason } : {}),
+    ...(message.requestShapeHash !== undefined ? { requestShapeHash: message.requestShapeHash } : {}),
+    ...(message.requestShapeChangeReason !== undefined ? { requestShapeChangeReason: message.requestShapeChangeReason } : {}),
+    ...(message.promptSegments !== undefined ? { promptSegments: message.promptSegments } : {}),
+    ...(message.contextBudget !== undefined ? { contextBudget: message.contextBudget } : {}),
+  };
+}
+
+function messageTurnId(message: StoredMessage): string | undefined {
+  return 'turnId' in message && typeof message.turnId === 'string' ? message.turnId : undefined;
+}
+
+function messageId(message: StoredMessage): string {
+  return 'id' in message && typeof message.id === 'string' ? message.id : '';
+}
