@@ -9588,6 +9588,11 @@ button:active {
   align-items: start;
   justify-content: space-between;
   gap: 12px;
+  /* Reserve the top-right corner for the absolutely-positioned sheet
+   * close button (.providerConfigSheetClose: 30px wide at right:14px,
+   * intruding ~28px into the 16px-padded content box). Without this the
+   * right-aligned header badges (默认 / 国内) slide under the X. */
+  padding-right: 36px;
 }
 
 .providerEditor label {
