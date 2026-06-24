@@ -21,6 +21,7 @@
     "./runtime-inputs": "./dist/runtime-inputs.js",
     "./visual-smoke": "./dist/visual-smoke.js",
     "./capabilities": "./dist/capabilities.js",
+    "./capability-audit": "./dist/capability-audit.js",
     "./health": "./dist/health.js",
     "./search": "./dist/search.js",
     "./bot-events": "./dist/bot-events.js",

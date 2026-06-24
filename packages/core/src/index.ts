@@ -263,6 +263,33 @@ export {
   runtimeProbeFromBotReadiness,
 } from './capabilities.js';
 
+// capability-audit.ts
+export type {
+  AutomationLastRunStatus,
+  AutomationRecord,
+  AutomationRecordTrigger,
+  CapabilityAuditPermissionMode,
+  CapabilityAuditReport,
+  CapabilityAuditSkillInput,
+  CapabilityAuditSummary,
+  DeriveCapabilityAuditReportInput,
+  SkillAuditRecord,
+  SourceAuthType,
+  SourceRecord,
+  SourceRecordStatus,
+  SourceRecordType,
+} from './capability-audit.js';
+export {
+  AUTOMATION_LAST_RUN_STATUSES,
+  AUTOMATION_RECORD_TRIGGERS,
+  CAPABILITY_AUDIT_PERMISSION_MODES,
+  LOCAL_SKILL_SOURCE_SLUG,
+  SOURCE_AUTH_TYPES,
+  SOURCE_RECORD_STATUSES,
+  SOURCE_RECORD_TYPES,
+  deriveCapabilityAuditReport,
+} from './capability-audit.js';
+
 // health.ts
 export type {
   HealthSignal,

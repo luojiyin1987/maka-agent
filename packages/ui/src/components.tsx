@@ -65,6 +65,7 @@ import type {
   PermissionMode,
   PermissionRequestEvent,
   PermissionResponse,
+  CapabilityAuditReport,
   BotProvider,
   PlanReminder,
   PlanReminderDeliveryTarget,
@@ -82,6 +83,7 @@ import {
   derivePermissionRequestHealth,
   BOT_DELIVERY_PROVIDERS,
   botDisplayLabel,
+  deriveCapabilityAuditReport,
   formatPlanReminderDeliveryTarget,
   formatPermissionRequestWait,
   formatRelativeTimestamp,
@@ -1091,8 +1093,56 @@ function formatSkillLibraryDescription(skill: SkillEntry): string | undefined {
   return '打开技能文件查看适用场景。';
 }
 
+export function CapabilityAuditStrip(props: { report: CapabilityAuditReport; focus: 'skills' | 'automations' }) {
+  const report = props.report;
+  const sourceCopy = report.summary.sourceCount === 0
+    ? '0 个来源'
+    : `${report.summary.readySourceCount}/${report.summary.sourceCount} 来源就绪`;
+  const skillCopy = `${report.summary.enabledSkillCount}/${report.summary.skillCount} 技能启用`;
+  const automationCopy = `${report.summary.enabledAutomationCount}/${report.summary.automationCount} 自动化启用`;
+  const riskCopy = capabilityAuditRiskCopy(report);
+  const primaryCopy = props.focus === 'skills'
+    ? `${report.summary.declaredToolKindCount} 类声明工具`
+    : `${report.summary.executableAutomationCount} 个可执行自动化`;
+
+  return (
+    <section className="maka-capability-audit-strip" aria-label="能力审计摘要">
+      <div className="maka-capability-audit-copy">
+        <span className="maka-capability-audit-kicker">能力审计</span>
+        <strong>{primaryCopy}</strong>
+        <small>{riskCopy}</small>
+      </div>
+      <dl className="maka-capability-audit-metrics" aria-label="来源、技能、自动化状态">
+        <div>
+          <dt>来源</dt>
+          <dd>{sourceCopy}</dd>
+        </div>
+        <div>
+          <dt>技能</dt>
+          <dd>{skillCopy}</dd>
+        </div>
+        <div>
+          <dt>自动化</dt>
+          <dd>{automationCopy}</dd>
+        </div>
+      </dl>
+    </section>
+  );
+}
+
+function capabilityAuditRiskCopy(report: CapabilityAuditReport): string {
+  const issues: string[] = [];
+  if (report.summary.needsAuthSourceCount > 0) issues.push(`${report.summary.needsAuthSourceCount} 个来源等待授权`);
+  if (report.summary.errorSourceCount > 0) issues.push(`${report.summary.errorSourceCount} 个来源异常`);
+  if (report.summary.failedAutomationCount > 0) issues.push(`${report.summary.failedAutomationCount} 个自动化上次失败`);
+  if (report.summary.skippedAutomationCount > 0) issues.push(`${report.summary.skippedAutomationCount} 个自动化上次跳过`);
+  if (issues.length === 0) return 'Skill 声明工具只作为权限请求展示；不会放大当前会话权限。';
+  return issues.join(' · ');
+}
+
 function SkillsModuleMain(props: {
   skills?: SkillEntry[];
+  auditReport?: CapabilityAuditReport;
   onRefreshSkills?(): void | Promise<void>;
   onCreateSkillTemplate?(): void | Promise<void>;
   onOpenSkill?(skillId: string): void | Promise<void>;
@@ -1130,6 +1180,7 @@ function SkillsModuleMain(props: {
 
   const skillActionBusy = pendingSkillAction !== null;
   const skillCreateLegacyLabel = pendingSkillAction === 'create' ? '创建中…' : '创建示例';
+  const auditReport = props.auditReport ?? deriveCapabilityAuditReport({ skills: props.skills ?? [] });
   return (
     <main className="maka-main detailPane maka-module-main agents-chat-panel" aria-label="技能">
       <header className="maka-module-main-header">
@@ -1178,6 +1229,7 @@ function SkillsModuleMain(props: {
           </UiButton>
         </div>
       </header>
+      <CapabilityAuditStrip report={auditReport} focus="skills" />
       <SkillLibraryPanel
         skills={props.skills}
         onRefreshSkills={props.onRefreshSkills ? () => runSkillAction('refresh', props.onRefreshSkills) : undefined}
@@ -1970,6 +2022,7 @@ const PLAN_REMINDER_EXAMPLE_TEMPLATES: readonly PlanReminderExampleTemplate[] = 
 
 function PlanReminderPanel(props: {
   reminders: PlanReminder[];
+  auditReport?: CapabilityAuditReport;
   onRefresh?(): void | Promise<void>;
   onCreate?(input: PlanReminderDraftInput): boolean | Promise<boolean> | void | Promise<void>;
   onUpdate?(id: string, patch: PlanReminderUpdatePatch): boolean | Promise<boolean> | void | Promise<void>;
@@ -2038,6 +2091,7 @@ function PlanReminderPanel(props: {
   const submitDisabled = !canCreate || submitPending;
   const formInteractionDisabled = submitPending;
   const isEditing = editingId !== null;
+  const auditReport = props.auditReport ?? deriveCapabilityAuditReport({ planReminders: props.reminders });
 
   useEffect(() => {
     planReminderMountedRef.current = true;
@@ -2246,6 +2300,8 @@ function PlanReminderPanel(props: {
             <Switch checked={false} disabled aria-label="保持系统唤醒暂未启用" />
           </div>
         </Alert>
+
+        <CapabilityAuditStrip report={auditReport} focus="automations" />
 
         <TabsRoot
           className="maka-plan-tabs"
@@ -4227,6 +4283,13 @@ export function ChatView(props: {
   const storedTools = materializeTools(props.messages);
   const tools = mergeTools(storedTools, props.tools);
   const turns = materializeTurns(props.messages, props.tools);
+  const capabilityAuditReport = useMemo(
+    () => deriveCapabilityAuditReport({
+      skills: props.skills ?? [],
+      planReminders: props.planReminders ?? [],
+    }),
+    [props.skills, props.planReminders],
+  );
   const scrollRef = useRef<HTMLDivElement>(null);
   const [pinnedToBottom, setPinnedToBottom] = useState(true);
   const [highlightedTurnId, setHighlightedTurnId] = useState<string | null>(null);
@@ -4293,6 +4356,7 @@ export function ChatView(props: {
     return (
       <SkillsModuleMain
         skills={props.skills}
+        auditReport={capabilityAuditReport}
         onRefreshSkills={props.onRefreshSkills}
         onCreateSkillTemplate={props.onCreateSkillTemplate}
         onOpenSkill={props.onOpenSkill}
@@ -4306,6 +4370,7 @@ export function ChatView(props: {
       <main className="maka-main detailPane maka-module-main agents-chat-panel" aria-label="定时任务">
         <PlanReminderPanel
           reminders={props.planReminders ?? []}
+          auditReport={capabilityAuditReport}
           onRefresh={props.onRefreshPlanReminders}
           onCreate={props.onCreatePlanReminder}
           onUpdate={props.onUpdatePlanReminder}
