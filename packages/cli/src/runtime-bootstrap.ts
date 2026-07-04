@@ -26,6 +26,7 @@ export interface MakaCliRuntimeContext {
   cwd: string;
   runtime: SessionManager;
   target: ReadySessionTarget;
+  tools: ReturnType<typeof buildBuiltinTools>;
 }
 
 export interface CreateMakaCliRuntimeContextInput {
@@ -59,7 +60,7 @@ export async function createMakaCliRuntimeContext(
   });
   const permissionEngine = new PermissionEngine({ newId: randomUUID, now: Date.now });
   const backends = new BackendRegistry();
-  const tools = buildBuiltinTools().filter((tool) => tool.name !== 'Edit');
+  const tools = buildBuiltinTools();
 
   backends.register('ai-sdk', async (ctx) => {
     const ready = await resolveDefaultSessionTarget({
@@ -109,6 +110,7 @@ export async function createMakaCliRuntimeContext(
     cwd: input.cwd,
     runtime,
     target,
+    tools,
   };
 }
 

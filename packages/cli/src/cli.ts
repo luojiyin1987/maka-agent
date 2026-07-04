@@ -5,6 +5,7 @@ import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createMakaSessionDriver } from './session-driver.js';
 import { createMakaCliRuntimeContext } from './runtime-bootstrap.js';
+import { selectableModelIdsForTarget } from './connection-target.js';
 import { resolveMakaWorkspaceRoot } from './workspace-root.js';
 import { runMakaPiTui } from './pi-tui-runner.js';
 
@@ -65,14 +66,16 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
         cwd: context.cwd,
         llmConnectionSlug: context.target.connection.slug,
         model: context.target.model,
+        permissionMode: 'ask',
       });
       await runMakaPiTui({
         driver,
         title: 'Maka',
         cwd: context.cwd,
         model: context.target.model,
+        models: selectableModelIdsForTarget(context.target),
         connectionSlug: context.target.connection.slug,
-        permissionMode: 'bypass',
+        permissionMode: 'ask',
       });
       return 0;
     }

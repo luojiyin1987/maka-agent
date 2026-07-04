@@ -5,12 +5,17 @@ import {
   wrapTextWithAnsi,
   type MarkdownTheme,
 } from '@earendil-works/pi-tui';
-import type { SessionEvent, ToolResultContent } from '@maka/core/events';
+import type { PermissionRequestEvent, SessionEvent, ToolResultContent } from '@maka/core/events';
+import type { StoredMessage, SystemNoteMessage } from '@maka/core/session';
+import { materializeSession, type ChatItem, type ToolActivityItem } from '@maka/runtime';
 import type { MakaSessionDriver } from './session-driver.js';
+import { ansi } from './tui-ansi.js';
 
 export interface MakaPiTranscriptState {
   entries: MakaPiTranscriptEntry[];
   sawTextDeltaMessageIds: Set<string>;
+  pendingPermission?: PermissionRequestEvent;
+  expandedToolUseId?: string;
 }
 
 export type MakaPiTranscriptEntry =
@@ -48,6 +53,34 @@ export function createMakaPiTranscriptState(): MakaPiTranscriptState {
 
 export function appendUserPrompt(state: MakaPiTranscriptState, text: string): void {
   state.entries.push({ kind: 'user', text });
+}
+
+export function replaceTranscriptWithStoredMessages(
+  state: MakaPiTranscriptState,
+  messages: readonly StoredMessage[],
+): void {
+  const view = materializeSession(messages);
+  state.entries = view.items
+    .map(chatItemToTranscriptEntry)
+    .filter((entry): entry is MakaPiTranscriptEntry => entry !== undefined);
+  state.sawTextDeltaMessageIds = new Set(
+    state.entries
+      .filter((entry): entry is Extract<MakaPiTranscriptEntry, { kind: 'assistant' }> => entry.kind === 'assistant')
+      .map((entry) => entry.messageId),
+  );
+  state.pendingPermission = undefined;
+  state.expandedToolUseId = undefined;
+}
+
+export function toggleLatestToolExpansion(state: MakaPiTranscriptState): boolean {
+  const latestTool = [...state.entries]
+    .reverse()
+    .find((entry): entry is MakaPiToolEntry => entry.kind === 'tool');
+  if (!latestTool) return false;
+  state.expandedToolUseId = state.expandedToolUseId === latestTool.toolUseId
+    ? undefined
+    : latestTool.toolUseId;
+  return true;
 }
 
 export async function submitPromptToTranscript(input: {
@@ -140,11 +173,19 @@ export function applyMakaSessionEventToTranscript(
     }
 
     case 'permission_request':
-      state.entries.push({
-        kind: 'notice',
-        level: 'info',
-        text: `Permission requested for ${event.toolName}: ${event.hint ?? event.reason}`,
-      });
+      state.pendingPermission = event;
+      break;
+
+    case 'permission_decision_ack':
+      if (state.pendingPermission?.requestId === event.requestId) {
+        const toolName = state.pendingPermission.toolName;
+        state.pendingPermission = undefined;
+        state.entries.push({
+          kind: 'notice',
+          level: 'info',
+          text: `Permission ${event.decision}ed for ${toolName}`,
+        });
+      }
       break;
 
     case 'plan_submitted':
@@ -156,6 +197,7 @@ export function applyMakaSessionEventToTranscript(
       break;
 
     case 'error':
+      state.pendingPermission = undefined;
       state.entries.push({
         kind: 'notice',
         level: 'error',
@@ -164,6 +206,7 @@ export function applyMakaSessionEventToTranscript(
       break;
 
     case 'abort':
+      state.pendingPermission = undefined;
       state.entries.push({
         kind: 'notice',
         level: 'info',
@@ -172,6 +215,8 @@ export function applyMakaSessionEventToTranscript(
       break;
 
     case 'complete':
+      // The turn is over; any unresolved permission request is no longer actionable.
+      state.pendingPermission = undefined;
       if (event.stopReason === 'max_tokens') {
         state.entries.push({
           kind: 'notice',
@@ -183,30 +228,97 @@ export function applyMakaSessionEventToTranscript(
   }
 }
 
+function chatItemToTranscriptEntry(item: ChatItem): MakaPiTranscriptEntry | undefined {
+  switch (item.kind) {
+    case 'user':
+      return { kind: 'user', text: item.message.text };
+    case 'assistant':
+      return { kind: 'assistant', messageId: item.message.id, text: item.message.text };
+    case 'tool':
+      return toolActivityToTranscriptEntry(item.item);
+    case 'system_note':
+      return systemNoteToTranscriptEntry(item.message);
+  }
+}
+
+function toolActivityToTranscriptEntry(item: ToolActivityItem): MakaPiTranscriptEntry {
+  const output = item.result
+    ? formatToolResultContent(item.result)
+    : item.status === 'interrupted'
+      ? 'Interrupted before the tool returned a result.'
+      : undefined;
+  return {
+    kind: 'tool',
+    toolUseId: item.toolUseId,
+    toolName: item.toolName,
+    ...(item.displayName ? { title: item.displayName } : {}),
+    input: item.args,
+    progress: [],
+    ...(output ? { output } : {}),
+    ...(item.durationMs !== undefined ? { durationMs: item.durationMs } : {}),
+    status: transcriptToolStatus(item.status),
+  };
+}
+
+function transcriptToolStatus(status: ToolActivityItem['status']): MakaPiToolEntry['status'] {
+  switch (status) {
+    case 'completed':
+      return 'done';
+    case 'errored':
+    case 'interrupted':
+      return 'error';
+    case 'pending':
+    case 'waiting_permission':
+    case 'running':
+      return 'running';
+  }
+}
+
+function systemNoteToTranscriptEntry(message: SystemNoteMessage): MakaPiTranscriptEntry | undefined {
+  const text = systemNoteText(message);
+  if (!text) return undefined;
+  return {
+    kind: 'notice',
+    level: message.kind === 'error' ? 'error' : 'info',
+    text,
+  };
+}
+
+function systemNoteText(message: SystemNoteMessage): string | undefined {
+  switch (message.kind) {
+    case 'session_start':
+    case 'session_resume':
+      return undefined;
+    case 'mode_change':
+      return 'Permission mode changed.';
+    case 'model_change':
+      return 'Model changed.';
+    case 'error':
+      return 'Session recorded an error.';
+    case 'abort':
+      return 'Session was stopped.';
+  }
+}
+
 export function renderMakaPiTranscript(
   state: MakaPiTranscriptState,
-  metadata: MakaPiTranscriptMetadata,
+  _metadata: MakaPiTranscriptMetadata,
   width: number,
 ): string[] {
   const safeWidth = Math.max(1, width);
-  const lines: string[] = [
-    fitLine(`${ansi.bold(metadata.title)} ${ansi.dim(metadata.model)} ${ansi.dim(metadata.connectionSlug)} ${ansi.dim(metadata.permissionMode)} ${ansi.dim(metadata.cwd)}`, safeWidth),
-    ansi.dim('-'.repeat(safeWidth)),
-  ];
-  const sessionId = metadata.sessionId ? `session ${metadata.sessionId}` : 'new session';
-  lines.push(fitLine(ansi.dim(metadata.busy ? `${sessionId} running` : `${sessionId} ready`), safeWidth));
+  const lines: string[] = [];
 
   for (const entry of state.entries) {
     lines.push('');
     switch (entry.kind) {
       case 'user':
-        lines.push(...renderTextBlock('User', entry.text, safeWidth, { markdown: false, heading: ansi.cyan }));
+        lines.push(...renderTextBlock('User', entry.text, safeWidth, { markdown: false, heading: ansi.accent }));
         break;
       case 'assistant':
-        lines.push(...renderTextBlock('maka', entry.text, safeWidth, { markdown: true, heading: ansi.green }));
+        lines.push(...renderTextBlock('maka', entry.text, safeWidth, { markdown: true, heading: ansi.accent }));
         break;
       case 'tool':
-        lines.push(...renderToolBlock(entry, safeWidth));
+        lines.push(...renderToolBlock(entry, safeWidth, state.expandedToolUseId === entry.toolUseId));
         break;
       case 'notice':
         lines.push(...renderNotice(entry, safeWidth));
@@ -214,7 +326,20 @@ export function renderMakaPiTranscript(
     }
   }
 
-  return lines.length > 0 ? lines : [''];
+  if (state.pendingPermission) {
+    lines.push('');
+    lines.push(...renderPermissionPrompt(state.pendingPermission, safeWidth));
+  }
+
+  return lines;
+}
+
+export function renderMakaPiStatusLine(metadata: MakaPiTranscriptMetadata, width: number): string {
+  const safeWidth = Math.max(1, width);
+  return fitLine(
+    `${ansi.bold(metadata.title)} ${ansi.dim(metadata.model)} ${ansi.dim(metadata.connectionSlug)} ${ansi.dim(metadata.permissionMode)} ${ansi.dim(metadata.cwd)}`,
+    safeWidth,
+  );
 }
 
 function appendAssistantText(state: MakaPiTranscriptState, messageId: string, text: string): void {
@@ -251,7 +376,7 @@ function renderTextBlock(
   return lines;
 }
 
-function renderToolBlock(entry: MakaPiToolEntry, width: number): string[] {
+function renderToolBlock(entry: MakaPiToolEntry, width: number, expanded: boolean): string[] {
   const status = entry.status === 'running'
     ? ansi.yellow('running')
     : entry.status === 'error'
@@ -261,21 +386,70 @@ function renderToolBlock(entry: MakaPiToolEntry, width: number): string[] {
   const lines = [
     fitLine(`${ansi.yellow('Tool')} ${entry.title ?? entry.toolName} ${status}${duration}`, width),
   ];
-  if (entry.input !== undefined) {
-    lines.push(...renderIndented(`input: ${formatUnknown(entry.input)}`, width, 2).map(ansi.dim));
-  }
+  const inputSummary = toolInputSummary(entry);
+  if (inputSummary) lines.push(...renderIndented(inputSummary, width, 2).map(ansi.dim));
   if (entry.progress.length > 0) {
-    lines.push(...renderIndented(limitText(entry.progress.join(''), 1200), width, 2).map(ansi.dim));
+    lines.push(...renderToolText(entry.progress.join(''), width, expanded).map(ansi.dim));
   }
   if (entry.output) {
-    lines.push(...renderIndented(limitText(entry.output, 4000), width, 2));
+    lines.push(...renderToolText(entry.output, width, expanded));
+  }
+  if (!expanded && toolHasHiddenDetail(entry)) {
+    lines.push(fitLine(ansi.dim('Ctrl+O expand'), width));
   }
   return lines.map((line) => fitLine(line, width));
+}
+
+function renderToolText(text: string, width: number, expanded: boolean): string[] {
+  const limit = expanded ? 12_000 : 600;
+  return renderIndented(limitText(text, limit), width, 2);
+}
+
+function toolHasHiddenDetail(entry: MakaPiToolEntry): boolean {
+  return entry.progress.join('').length > 600 || (entry.output?.length ?? 0) > 600;
+}
+
+function toolInputSummary(entry: MakaPiToolEntry): string {
+  const input = entry.input;
+  if (entry.toolName === 'Bash' && input !== null && typeof input === 'object') {
+    const command = (input as { command?: unknown }).command;
+    if (typeof command === 'string' && command.trim()) return `command: ${command}`;
+  }
+  if ((entry.toolName === 'Write' || entry.toolName === 'Edit') && input !== null && typeof input === 'object') {
+    const path = (input as { path?: unknown }).path;
+    if (typeof path === 'string' && path.trim()) return `path: ${path}`;
+  }
+  if (input === undefined) return '';
+  return `input: ${limitText(formatUnknown(input), 600)}`;
 }
 
 function renderNotice(entry: MakaPiNoticeEntry, width: number): string[] {
   const label = entry.level === 'error' ? ansi.red('Error') : ansi.dim('Note');
   return renderIndented(`${label}: ${entry.text}`, width, 0).map((line) => fitLine(line, width));
+}
+
+function renderPermissionPrompt(request: PermissionRequestEvent, width: number): string[] {
+  const lines = [
+    fitLine(`${ansi.yellow('Permission required')} ${ansi.bold(request.toolName)} ${ansi.dim(request.category)}`, width),
+  ];
+  const summary = permissionRequestSummary(request);
+  if (summary) lines.push(...renderIndented(summary, width, 2));
+  if (request.hint) lines.push(...renderIndented(request.hint, width, 2).map(ansi.dim));
+  lines.push(fitLine(ansi.dim('y/Enter allow  n/Esc deny'), width));
+  return lines;
+}
+
+function permissionRequestSummary(request: PermissionRequestEvent): string {
+  const args = request.args;
+  if (request.toolName === 'Bash' && args !== null && typeof args === 'object') {
+    const command = (args as { command?: unknown }).command;
+    if (typeof command === 'string' && command.trim()) return `$ ${command}`;
+  }
+  if ((request.toolName === 'Write' || request.toolName === 'Edit') && args !== null && typeof args === 'object') {
+    const path = (args as { path?: unknown }).path;
+    if (typeof path === 'string' && path.trim()) return path;
+  }
+  return limitText(formatUnknown(request.args), 600);
 }
 
 function renderIndented(text: string, width: number, indent: number): string[] {
@@ -351,24 +525,8 @@ function limitText(text: string, maxChars: number): string {
   return `${text.slice(0, maxChars)}\n... ${text.length - maxChars} chars truncated`;
 }
 
-const ansi = {
-  bold: style(1, 22),
-  dim: style(2, 22),
-  italic: style(3, 23),
-  underline: style(4, 24),
-  strikethrough: style(9, 29),
-  red: style(31, 39),
-  green: style(32, 39),
-  yellow: style(33, 39),
-  cyan: style(36, 39),
-};
-
-function style(open: number, close: number): (text: string) => string {
-  return (text) => `\x1b[${open}m${text}\x1b[${close}m`;
-}
-
 const markdownTheme: MarkdownTheme = {
-  heading: ansi.cyan,
+  heading: ansi.accent,
   link: ansi.underline,
   linkUrl: ansi.dim,
   code: ansi.yellow,
@@ -377,7 +535,7 @@ const markdownTheme: MarkdownTheme = {
   quote: ansi.dim,
   quoteBorder: ansi.dim,
   hr: ansi.dim,
-  listBullet: ansi.cyan,
+  listBullet: ansi.accent,
   bold: ansi.bold,
   italic: ansi.italic,
   strikethrough: ansi.strikethrough,
