@@ -15,6 +15,7 @@
 
 export { SessionManager, BackendRegistry, headerToSummary, changesBackendConfig } from './session-manager.js';
 export type {
+  CompactSessionInput,
   SessionManagerDeps,
   SessionStore,
   BackendFactory,
@@ -33,6 +34,8 @@ export type { EvaluateResult, EvaluateInput, PermissionEngineDeps } from './perm
 export { AiSdkBackend } from './ai-sdk-backend.js';
 export type {
   AgentBackend,
+  BackendCompactHistoryInput,
+  BackendCompactHistoryResult,
   AiSdkBackendInput,
   AppendMessageFn,
   MakaTool,
@@ -234,6 +237,19 @@ export type {
   CompactionSourceKind,
   CompactionStage,
 } from './compaction-boundary.js';
+export { buildDefaultContextBudgetPolicy, buildManualCompactLookupPolicy } from './context-budget-policy.js';
+export type {
+  BuildDefaultContextBudgetPolicyOptions,
+  BuildManualCompactLookupPolicyOptions,
+} from './context-budget-policy.js';
+export {
+  loadHistoryCompactBlocksFromArtifacts,
+  persistHistoryCompactBlocksToArtifacts,
+} from './history-compact-artifacts.js';
+export type {
+  HistoryCompactArtifactStore,
+  PersistHistoryCompactBlocksDeps,
+} from './history-compact-artifacts.js';
 export {
   ACTIVE_ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
   ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
