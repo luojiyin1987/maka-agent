@@ -521,6 +521,89 @@ describe('builtin read tools path containment', () => {
   });
 });
 
+describe('builtin FormatJson', () => {
+  test('happy path: valid JSON is formatted with 2-space indent', async () => {
+    const t = tool('FormatJson');
+    const input = '{"b":1,"a":[2,3],"c":{"d":true}}';
+    const result = await runTool(t, { content: input }, '/workspace') as { ok: boolean; content: string };
+
+    expect(result.ok).toBe(true);
+    expect(result.content).toBe(JSON.stringify(JSON.parse(input), null, 2));
+  });
+
+  test('sort_keys: true orders object keys lexicographically', async () => {
+    const t = tool('FormatJson');
+    const input = '{"z":1,"a":2,"m":3}';
+    const result = await runTool(t, { content: input, sort_keys: true }, '/workspace') as { ok: boolean; content: string };
+
+    expect(result.ok).toBe(true);
+    expect(result.content).toBe('{\n  "a": 2,\n  "m": 3,\n  "z": 1\n}');
+  });
+
+  test('sort_keys: true preserves __proto__ as data property', async () => {
+    const t = tool('FormatJson');
+    const result = await runTool(
+      t,
+      { content: '{"__proto__":{"polluted":true},"a":1}', sort_keys: true },
+      '/workspace',
+    ) as { ok: boolean; content: string };
+
+    expect(result.ok).toBe(true);
+    const parsed = JSON.parse(result.content) as Record<string, unknown>;
+    // __proto__ must be an own data property, not lost or triggering the setter
+    expect(Object.prototype.hasOwnProperty.call(parsed, '__proto__')).toBe(true);
+    expect(parsed['__proto__']).toEqual({ polluted: true });
+    expect(parsed.a).toBe(1);
+  });
+
+  test('indent: 0 produces compact single-line output', async () => {
+    const t = tool('FormatJson');
+    const input = '{"x":1,"y":2}';
+    const result = await runTool(t, { content: input, indent: 0 }, '/workspace') as { ok: boolean; content: string };
+
+    expect(result.ok).toBe(true);
+    expect(result.content).toBe('{"x":1,"y":2}');
+  });
+
+  test('invalid JSON throws with FormatJson prefix', async () => {
+    const t = tool('FormatJson');
+    await expectRejects(runTool(t, { content: 'not json' }, '/workspace'), /FormatJson: invalid JSON/);
+  });
+
+  test('sort_keys: true sorts nested objects recursively', async () => {
+    const t = tool('FormatJson');
+    const input = '{"outer":{"z":1,"a":2},"list":[{"b":1,"a":2}]}';
+    const result = await runTool(t, { content: input, sort_keys: true }, '/workspace') as { ok: boolean; content: string };
+
+    expect(result.ok).toBe(true);
+    const parsed = JSON.parse(result.content);
+    expect(Object.keys(parsed.outer)).toEqual(['a', 'z']);
+    expect(Object.keys(parsed.list[0])).toEqual(['a', 'b']);
+  });
+
+  test('handles empty object and empty array', async () => {
+    const t = tool('FormatJson');
+
+    const emptyObj = await runTool(t, { content: '{}' }, '/workspace') as { ok: boolean; content: string };
+    expect(emptyObj.ok).toBe(true);
+    expect(emptyObj.content).toBe('{}');
+
+    const emptyArr = await runTool(t, { content: '[]' }, '/workspace') as { ok: boolean; content: string };
+    expect(emptyArr.ok).toBe(true);
+    expect(emptyArr.content).toBe('[]');
+  });
+
+  test('handles unicode and special characters in strings', async () => {
+    const t = tool('FormatJson');
+    const input = '{"emoji":"🎉","cjk":"你好","escaped":"line\\nbreak","escaped2":"tab\\tchar"}';
+    const result = await runTool(t, { content: input }, '/workspace') as { ok: boolean; content: string };
+
+    expect(result.ok).toBe(true);
+    expect(result.content).toContain('🎉');
+    expect(result.content).toContain('你好');
+  });
+});
+
 describe('builtin write tools path containment', () => {
   test('Write can delegate path resolution to a remote executor when cwd is not on the host', async () => {
     const writes: Array<{ cwd: string; path: string; content: string }> = [];
