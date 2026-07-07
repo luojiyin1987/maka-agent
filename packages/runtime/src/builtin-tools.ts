@@ -176,7 +176,46 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
         });
       },
     },
+    {
+      name: 'FormatJson',
+      description:
+        'Validate and pretty-print a JSON string. Returns the canonical 2-space formatted form, '
+        + 'or throws with a parse error hint on invalid JSON. No filesystem access.',
+      parameters: z.object({
+        content: z.string().describe('The JSON string to validate and format.'),
+        indent: z.number().int().min(0).max(8).optional()
+          .describe('Number of spaces per indentation level; default 2.'),
+        sort_keys: z.boolean().optional()
+          .describe('Sort object keys lexicographically; default false.'),
+      }),
+      permissionRequired: false,
+      executionFacts,
+      impl: async ({ content, indent, sort_keys }) => {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(content);
+        } catch (e) {
+          throw new Error(`FormatJson: invalid JSON: ${(e as Error).message}`);
+        }
+        const value = sort_keys ? sortKeysDeep(parsed) : parsed;
+        const formatted = JSON.stringify(value, null, indent ?? 2);
+        return { ok: true, content: formatted };
+      },
+    },
   ];
+}
+
+function sortKeysDeep(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortKeysDeep);
+  if (value !== null && typeof value === 'object' && !(value instanceof Date)) {
+    return Object.keys(value)
+      .sort()
+      .reduce((acc, key) => {
+        (acc as Record<string, unknown>)[key] = sortKeysDeep((value as Record<string, unknown>)[key]);
+        return acc;
+      }, {} as Record<string, unknown>);
+  }
+  return value;
 }
 
 function buildExecutorBashTool(executor: WorkspaceExecutor): MakaTool {
