@@ -552,7 +552,7 @@ describe('builtin FormatJson', () => {
     const parsed = JSON.parse(result.content);
     // __proto__ must be an own data property, not lost or triggering the setter
     expect(Object.prototype.hasOwnProperty.call(parsed, '__proto__')).toBe(true);
-    expect(parsed.__proto__).toEqual({ polluted: true });
+    expect((parsed as Record<string, unknown>)['__proto__']).toEqual({ polluted: true });
     expect(parsed.a).toBe(1);
   });
 
